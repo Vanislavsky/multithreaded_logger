@@ -1,0 +1,5 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
+PROJECT(OSTask)
+ADD_EXECUTABLE(ConsoleApplication3 ConsoleApplication3.cpp)
+ADD_EXECUTABLE(ConsoleApplication2 ConsoleApplication2.cpp)
+ADD_EXECUTABLE(main_proccess main_proccess.cpp)
