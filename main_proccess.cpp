@@ -16,58 +16,19 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <cstring>
+#include <sys/file.h>
+#include <errno.h>
 #endif
 
-#include<conio.h>
+#include "Counter.hpp"
 
+#if defined (WIN32)
+HANDLE mut = CreateMutex(NULL, FALSE, "FILE_MUTEX");
+#endif
 
-class Counter {
-public:
-
-    void Increase() {
-        countert_mutex.lock();
-        k++;
-        countert_mutex.unlock();
-    }
-
-    void IncreaseValue(size_t value) {
-        countert_mutex.lock();
-        k += value;
-        countert_mutex.unlock();
-    }
-
-    void SetValue(size_t _k) {
-        countert_mutex.lock();
-        k = _k;
-        countert_mutex.unlock();
-    }
-
-    void Multiply() {
-        countert_mutex.lock();
-        k *= 2;
-        countert_mutex.unlock();
-    }
-
-    void Divide() {
-        countert_mutex.lock();
-        k /= 2;
-        countert_mutex.unlock();
-    }
-
-    size_t GetValue() {
-        size_t result;
-        countert_mutex.lock();
-        result = k;
-        countert_mutex.unlock();
-
-        return result;
-    }
-
-
-public:
-    size_t k{ 0 };
-    std::mutex countert_mutex;
-};
 
 std::mutex _mutex;
 
@@ -92,14 +53,19 @@ void record(std::ofstream& log, Counter& count) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         auto now = std::chrono::system_clock::now();
         std::time_t end_time = std::chrono::system_clock::to_time_t(now);
-        _mutex.lock();
+        //_mutex.lock();
         auto val = count.GetValue();
+
 #if defined(WIN32)
-        log << "PID: " << _getpid() << ", Current time: " << std::ctime(&end_time) << ", counter: " << val << std::endl;
+        WaitForSingleObject(mut, INFINITE);
+        log << "PID: " << _getpid() << ", counter: " << val << ", Current time: " << std::ctime(&end_time);
+        ReleaseMutex(mut);
 #else
-        log << "PID: " << getpid() << ", Current time: " << std::ctime(&end_time) << ", counter: " << val << std::endl;
-#endif
+        _mutex.lock();
+        log << "PID: " << getpid() << ", counter: " << val << ", Current time: " << std::ctime(&end_time);
         _mutex.unlock();
+#endif
+        //_mutex.unlock();
     }
 }
 
@@ -110,28 +76,27 @@ void CreteFirstProccesses(std::ofstream& log) {
     STARTUPINFO sti;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-
         if (!first_occurrence) {
             bool first_write = false;
             DWORD exitCode = 0;
             do {
                 GetExitCodeProcess(pi.hProcess, &exitCode);
                 if (exitCode == STILL_ACTIVE && !first_write) {
-                    _mutex.lock();
+                    //_mutex.lock();
+                    WaitForSingleObject(mut, INFINITE);
                     log << "First proccess still active" << std::endl;
-                    _mutex.unlock();
+                    ReleaseMutex(mut);
+                    first_write = true;
+                    //_mutex.unlock();
                 }
 
-            } while (exitCode != STILL_ACTIVE);
+            } while (exitCode == STILL_ACTIVE);
         }
 
         sti = { 0 };
         pi = { 0 };
 
-        std::wstring CommandLine(L"ConsoleApplication2.exe ");
-        LPWSTR lpwCmdLine = &CommandLine[0];
-
-        if (!CreateProcess("ConsoleApplication2.exe",   // No module name (use command line)
+        if (!CreateProcess("first_process.exe ",   // No module name (use command line)
             NULL,        // Command line
             NULL,           // Process handle not inheritable
             NULL,           // Thread handle not inheritable
@@ -162,14 +127,14 @@ void CreteFirstProccesses(std::ofstream& log) {
             bool first_write = false;
             pid_t result;
             do {
-                pid_t result = waitpid(, &status, WNOHANG);
+                pid_t result = waitpid(pid, &status, WNOHANG);
                 if (result == 0 && !first_write) {
                     _mutex.lock();
                     log << "First proccess still active" << std::endl;
                     _mutex.unlock();
                     first_write = true;
                 }
-            } while (result != 0)
+            } while (result == 0);
         }
 
         switch (pid = fork()) {
@@ -178,7 +143,7 @@ void CreteFirstProccesses(std::ofstream& log) {
             exit(1);
         }
         case 0: {
-            execve("/FirstProcess", NULL, NULL);
+            execve("./FirstProcess", NULL, NULL);
         }
         }
     }
@@ -193,29 +158,28 @@ void CreteSecondProccesses(std::ofstream& log) {
     STARTUPINFO sti;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-
         if (!first_occurrence) {
             bool first_write = false;
             DWORD exitCode = 0;
             do {
                 GetExitCodeProcess(pi.hProcess, &exitCode);
                 if (exitCode == STILL_ACTIVE && !first_write) {
-                    _mutex.lock();
+                    //_mutex.lock();
+                    WaitForSingleObject(mut, INFINITE);
                     log << "Second Proccess still active" << std::endl;
-                    _mutex.unlock();
+                    ReleaseMutex(mut);
+                    //_mutex.unlock();
                     first_write = true;
                 }
-                    
 
-            } while (exitCode != STILL_ACTIVE);
+
+            } while (exitCode == STILL_ACTIVE);
         }
 
         sti = { 0 };
         pi = { 0 };
 
-        std::wstring CommandLine(L"ConsoleApplication3.exe ");
-        LPWSTR lpwCmdLine = &CommandLine[0];
-        if (!CreateProcess("ConsoleApplication3.exe ",   // No module name (use command line)
+        if (!CreateProcess("second_process.exe",   // No module name (use command line)
             NULL,        // Command line
             NULL,           // Process handle not inheritable
             NULL,           // Thread handle not inheritable
@@ -245,14 +209,14 @@ void CreteSecondProccesses(std::ofstream& log) {
             bool first_write = false;
             pid_t result;
             do {
-                pid_t result = waitpid(, &status, WNOHANG);
+                pid_t result = waitpid(pid, &status, WNOHANG);
                 if (result == 0 && !first_write) {
                     _mutex.lock();
                     log << "Second proccess still active" << std::endl;
                     _mutex.unlock();
                     first_write = true;
                 }
-            } while (result != 0)
+            } while (result == 0);
         }
 
         switch (pid = fork()) {
@@ -261,7 +225,7 @@ void CreteSecondProccesses(std::ofstream& log) {
             exit(1);
         }
         case 0: {
-            execve("/SecondProcess", NULL, NULL);
+            execve("./SecondProcess", NULL, NULL);
         }
         }
     }
@@ -271,65 +235,124 @@ void CreteSecondProccesses(std::ofstream& log) {
 
 int main()
 {
+    Counter counter;
     auto now = std::chrono::system_clock::now();
     std::time_t end_time = std::chrono::system_clock::to_time_t(now);
     auto c_end_time = std::ctime(&end_time);
 
-    std::mutex _mutex;
-    Counter counter;
-    counter.k = 10;
-
     std::ofstream log_file(
         "log_file.txt", std::ios_base::out | std::ios_base::app);
 
-    _mutex.lock();
 #if defined(WIN32)
-    log_file << "PID: " << _getpid() << " ,Creating proccess time: " << c_end_time;
-#else
-    log_file << "PID: " << getpid() << " ,Creating proccess time: " << c_end_time;
-#endif
-    _mutex.unlock();
+    HANDLE mut;
+    mut = CreateMutex(NULL, FALSE, "FirstStep");
+    DWORD result;
+    result = WaitForSingleObject(mut, 0);
+    // this is the first instance
+    if (GetLastError() != ERROR_ALREADY_EXISTS) {
+
+        WaitForSingleObject(mut, INFINITE);
+        log_file << "PID: " << _getpid() << " ,Creating proccess time: " << c_end_time;
+        ReleaseMutex(mut);
 
 
-#if defined(WIN32)
-    auto mapping = ::CreateFileMappingW(
-        nullptr, // без файла на диске
-        nullptr, // не наследуется процессами-потомками
-        PAGE_READWRITE,
-        0, sizeof(Counter), // размер
-        L"Local//test-shared-memory");
+        auto mapping = ::CreateFileMappingW(
+            nullptr, // без файла на диске
+            nullptr, // не наследуется процессами-потомками
+            PAGE_READWRITE,
+            0, sizeof(Counter), // размер
+            L"Local//test-shared-memory");
 
-    auto data = (Counter*)::MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Counter));
-    CopyMemory(data, &counter, sizeof(Counter));
-#else
-    int shm;
-    if ((shm = shm_open("my_shared_memory", O_CREAT | O_RDWR, 0777)) == -1) {
-        perror("SHM_OPEN");
-        return 1;
+        auto data = (Counter*)::MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Counter));
+        CopyMemory(data, &counter, sizeof(Counter));
+
+        std::thread timer_thr(timer, std::ref(*data));
+        std::thread record_thr(record, std::ref(log_file), std::ref(*data));
+        std::thread count_change_thr(count_change, std::ref(*data));
+        std::thread create_second_proccess_thr(CreteSecondProccesses, std::ref(log_file));
+
+        CreteFirstProccesses(log_file);
+
+        CloseHandle(mut);
     }
+    // this is another instance
+    else {
+        std::cout << "not first proccess";
+        HANDLE mut = OpenMutex(NULL, FALSE, "FILE_MUTEX");
+        WaitForSingleObject(mut, INFINITE);
+        log_file << "PID: " << _getpid() << " ,Creating copy proccess time: " << c_end_time;
+        ReleaseMutex(mut);
+        HANDLE hMapFile = OpenFileMapping(
+            FILE_MAP_ALL_ACCESS,      // read/write access
+            FALSE,                    // do not inherit the name
+            "Local//test-shared-memory");
 
-    if (ftruncate(shm, sizeof(Counter)) == -1) {
-        perror("FTRUNCATE");
-        return 1;
+        if (hMapFile == FALSE) {
+            std::cout << "OpenFileMapping error";
+        }
+
+        auto data = (Counter*)::MapViewOfFile(hMapFile, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, sizeof(Counter));
+        if (data == NULL) {
+            std::cout << "MapViewOfFile error";
+        }
+        std::thread timer_thr(timer, std::ref(*data));
+        std::thread count_change_thr(count_change, std::ref(*data));
+
+        timer_thr.join();
+        count_change_thr.join();
     }
+#else
+    int pid_file = open("whatever.pid", O_CREAT | O_RDWR, 0666);
+    int rc = flock(pid_file, LOCK_EX | LOCK_NB);
+    if (rc) {
+        if (EWOULDBLOCK == errno) {
+            // another instance is running
+            int shm;
+            if ((shm = shm_open("my_shared_memory", O_CREAT | O_RDWR, 0777)) == -1) {
+                perror("SHM_OPEN");
+                return 1;
+            }
 
-    Counter* addr = (Counter*)mmap(0, sizeof(Counter), PROT_WRITE | PROT_READ, MAP_SHARED, shm, 0);
-    memcpy(addr, &counter, sizeof(Counter));
+            Counter* data = (Counter*)mmap(0, sizeof(Counter), PROT_WRITE | PROT_READ, MAP_SHARED, shm, 0);
+
+            std::thread timer_thr(timer, std::ref(*data));
+            std::thread count_change_thr(count_change, std::ref(*data));
+
+            timer_thr.join();
+            count_change_thr.join();
+
+        }
+    }
+    else {
+        // this is the first instance
+
+        _mutex.lock();
+        log_file << "PID: " << getpid() << " ,Creating proccess time: " << c_end_time;
+        _mutex.unlock();
+
+        int shm;
+        if ((shm = shm_open("my_shared_memory", O_CREAT | O_RDWR, 0777)) == -1) {
+            perror("SHM_OPEN");
+            return 1;
+        }
+
+        if (ftruncate(shm, sizeof(Counter)) == -1) {
+            perror("FTRUNCATE");
+            return 1;
+        }
+
+        Counter* data = (Counter*)mmap(0, sizeof(Counter), PROT_WRITE | PROT_READ, MAP_SHARED, shm, 0);
+        memcpy(data, &counter, sizeof(Counter));
+
+        std::thread timer_thr(timer, std::ref(*data));
+        std::thread record_thr(record, std::ref(log_file), std::ref(*data));
+        std::thread count_change_thr(count_change, std::ref(*data));
+        std::thread create_second_proccess_thr(CreteSecondProccesses, std::ref(log_file));
+
+        CreteFirstProccesses(log_file);
+
+    }
 #endif
-
-    std::thread create_first_proccess_thr(CreteFirstProccesses, std::ref(log_file));
-    std::thread create_second_proccess_thr(CreteSecondProccesses, std::ref(log_file));
-    std::thread timer_thr(timer, std::ref(*data));
-    std::thread record_thr(record, std::ref(log_file), std::ref(*data));
-    std::thread count_change_thr(count_change, std::ref(*data));
-
-
-
-    create_first_proccess_thr.join();
-    create_second_proccess_thr.join();
-    timer_thr.join();
-    record_thr.join();
-    count_change_thr.join();
     return 0;
 }
 
